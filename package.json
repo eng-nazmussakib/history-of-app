@@ -1,5 +1,5 @@
 {
-  "name": "history-of-next",
+  "name": "history-of-app",
   "version": "0.0.0",
   "private": true,
   "description": "History Of: Next.js app serving both the web pages and the /v1 JSON API",
