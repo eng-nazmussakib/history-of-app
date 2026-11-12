@@ -1,0 +1,15 @@
+# Dependencies and build output
+node_modules/
+.next/
+out/
+next-env.d.ts
+
+# Environment files (.env, .env.local, .env.development, .env.production, …)
+# stay on your machine. Only the documented example is committed.
+.env*
+!.env.local.example
+
+# Logs and OS files
+*.log
+.DS_Store
+.neon
