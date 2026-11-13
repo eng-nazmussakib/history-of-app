@@ -13,3 +13,7 @@ next-env.d.ts
 *.log
 .DS_Store
 .neon
+
+# OpenNext / wrangler build output and local state
+.open-next/
+.wrangler/

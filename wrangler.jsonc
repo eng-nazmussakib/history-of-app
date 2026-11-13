@@ -1,0 +1,83 @@
+// Cloudflare Workers config for the OpenNext build (npm run deploy, or the
+// Cloudflare Git build with `npx opennextjs-cloudflare build` / `deploy`).
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"main": ".open-next/worker.js",
+	// Must match the Worker's name in the Cloudflare dashboard, or a deploy
+	// creates a second Worker instead of updating this one.
+	"name": "history-of-app",
+	// 2026-08-04 or later: nodejs_compat (pg, process.env) is on by default.
+	"compatibility_date": "2026-11-01",
+	"compatibility_flags": [
+		"nodejs_compat",
+		"global_fetch_strictly_public"
+	],
+	// Keep variables added in the dashboard when deploying from this file.
+	"keep_vars": true,
+	"vars": {
+		// Public origin for canonical links, the sitemap, JSON-LD and the share
+		// image (src/server/config.js reads it from process.env).
+		"SITE_URL": "https://history-of.nazmussakib.app"
+	},
+	"assets": {
+		"directory": ".open-next/assets",
+		"binding": "ASSETS"
+	},
+	"services": [
+		{
+			// Self-reference OpenNext uses for caching; must match "name" above.
+			"binding": "WORKER_SELF_REFERENCE",
+			"service": "history-of-app"
+		}
+	],
+	// ISR cache (open-next.config.ts). Create the bucket once with:
+	//   npx wrangler r2 bucket create history-of-app-opennext-cache
+	"r2_buckets": [
+		{
+			"binding": "NEXT_INC_CACHE_R2_BUCKET",
+			"bucket_name": "history-of-app-opennext-cache"
+		},
+		{
+			"bucket_name": "history-of-app-opennext-cache",
+			"binding": "history_of_app_opennext_cache",
+			"remote": true
+		}
+	],
+	// Background revalidation queue for stale ISR pages; the class is exported
+	// by OpenNext's generated worker.
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "NEXT_CACHE_DO_QUEUE",
+				"class_name": "DOQueueHandler"
+			}
+		]
+	},
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_sqlite_classes": [
+				"DOQueueHandler"
+			]
+		}
+	],
+	"hyperdrive": [
+		{
+			// src/server/db/pool.js reads env.HYPERDRIVE.connectionString.
+			// Create it with: npx wrangler hyperdrive create history-of-db
+			//   --connection-string="<DATABASE_URL_UNPOOLED from .env.production>"
+			// and paste the id it prints here.
+			"binding": "HYPERDRIVE",
+			"id": "8946ca557de44eab89dc6e5998d6b8fc",
+			// For `npm run preview` (wrangler dev): replace with a TCP connection
+			// string for a local or dev database, e.g.
+			// postgresql://USER:PASSWORD@localhost:5432/history_of. Don't commit
+			// real credentials; you can also set
+			// CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE instead.
+			"localConnectionString": "postgresql://USER:PASSWORD@localhost:5432/history_of"
+		}
+	],
+	"observability": {
+		"enabled": true
+	}
+}

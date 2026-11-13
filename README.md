@@ -12,7 +12,7 @@ This repository is the main app: one **Next.js 16** (App Router) process that se
 
 | Document | What it covers |
 |---|---|
-| **README.md** (this file) | Vision, how the app works, setup, routes, caching, SEO, [features](#features), [open issues](#unresolved-issues) and the [Cloudflare checklist](#after-setting-up-cloudflare) |
+| **README.md** (this file) | Vision, how the app works, setup, routes, caching, SEO, [features](#features), [open issues](#unresolved-issues) and [deploying to Cloudflare](#deploying-to-cloudflare) |
 | [docs/FEATURES.md](docs/FEATURES.md) | Feature-by-feature breakdown (MVP / v1 / later) with what's done and what's planned |
 | [docs/PROJECT_STRUCTURE.md](docs/PROJECT_STRUCTURE.md) | Repositories, data model, API surface, data flow |
 
@@ -102,6 +102,9 @@ npm run dev                               # http://localhost:3000/t/japan and /v
 | `npm start` | Production server on `WEB_PORT` (default 3000) |
 | `npm test` | Vitest: unit, component, API, database and end-to-end tests (see [Tests](#tests)) |
 | `npm run lint` | Oxlint |
+| `npm run preview` | OpenNext build, then run the Worker locally with `wrangler dev` (see [Deploying to Cloudflare](#deploying-to-cloudflare)) |
+| `npm run deploy` | OpenNext build, then deploy the Worker to Cloudflare |
+| `npm run cf-typegen` | Generate `CloudflareEnv` types for the Worker's bindings |
 
 ## Configuration
 
@@ -113,6 +116,8 @@ Copy `.env.local.example` to `.env.local`; Next loads it from this folder. Every
 | `SITE_URL` | the request's host (cached timeline pages: `http://localhost:<WEB_PORT>`) | Public origin for canonical links, `sitemap.xml`, JSON-LD and the share image URL. **Set it in production:** cached pages can't read the request's host, so without it their canonical links point at localhost (a warning is logged) |
 | `CORS_ORIGIN` | none | Comma-separated *other* origins allowed to call `/v1` from a browser. The app's own pages are same-origin and don't need it |
 | `WEB_PORT` | `3000` | Port for `npm start`. Read by the shell from the environment, not from `.env.local` |
+
+On Cloudflare Workers these come from `wrangler.jsonc` instead: `SITE_URL` is a `vars` entry, and the database is the `HYPERDRIVE` binding (`DATABASE_URL` isn't read there). Variables are read when used, not once at startup, because the Worker's variables reach `process.env` per request.
 
 ---
 
@@ -284,26 +289,30 @@ Known gaps and quirks. SEO items are also tracked in the [SEO backlog](docs/FEAT
 | `ItemList` entries link to Wikipedia | No rich results for timeline lists | Point them at event pages once they exist (F-15) |
 | No `apple-touch-icon` or web manifest; one share image for all pages | iOS home screen and per-term link previews | Add PNG icons; generate per-term images as static files at build time |
 
-## After Setting Up Cloudflare
+## Deploying to Cloudflare
 
-This app runs on Node today. To deploy it on Cloudflare Workers with OpenNext (`@opennextjs/cloudflare`):
+Production runs on Cloudflare Workers through OpenNext (`@opennextjs/cloudflare`). Cloudflare builds from this repository with **build command** `npx opennextjs-cloudflare build` and **deploy command** `npx opennextjs-cloudflare deploy` (Worker settings → Build). Locally, `npm run deploy` does the same.
 
-**1. Adapter**
-- `npm i -D @opennextjs/cloudflare wrangler`, then add `open-next.config.ts`, `wrangler.jsonc` (with the `nodejs_compat` compatibility flag) and the `preview` / `deploy` scripts from the OpenNext getting-started guide.
-- Keep routing in `next.config.mjs`. Don't add `proxy.js`: OpenNext doesn't support Next 16's Node-runtime proxy yet.
+**1. Adapter (done)**
+- `wrangler.jsonc` (Worker `history-of-app`, `nodejs_compat`, `SITE_URL`, bindings) and `open-next.config.ts`.
+- Routing stays in `next.config.mjs`. Don't add `proxy.js`: OpenNext doesn't support Next 16's Node-runtime proxy yet.
 
-**2. ISR cache (required, or timelines won't be cached)**
-- Configure an incremental cache (an R2 bucket is the usual choice) and the revalidation queue (Durable Objects) in `open-next.config.ts`, with matching bindings in `wrangler.jsonc`, as described in OpenNext's caching docs.
-- A tag cache is only needed if you add `revalidatePath` / `revalidateTag`.
+**2. Database: Hyperdrive (done)**
+- PostgreSQL is on Neon. The Worker reaches it through the Hyperdrive config `history-of-db` (binding `HYPERDRIVE` in `wrangler.jsonc`), created from Neon's *direct* (unpooled) URL, since Hyperdrive does its own pooling:
+  `npx wrangler hyperdrive create history-of-db --connection-string="<DATABASE_URL_UNPOOLED>"`
+- `src/server/db/pool.js`: on Workers (an OpenNext context with `HYPERDRIVE`), each query opens a `pg.Client` from `env.HYPERDRIVE.connectionString` and closes it. A Worker can't reuse a socket across requests, so the process-wide pool is only used on Node (`next dev`, `next start`, tests).
+- If the Neon password changes: `npx wrangler hyperdrive update <id> --connection-string="<new URL>"`.
+- Schema and seeds: `../history-of-db/neon/setup.sh --seed` against Neon.
+- `npm run preview` runs the Worker in workerd, which can't use the local Unix socket: set `CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE` to a TCP connection string (or edit `localConnectionString`; don't commit credentials).
 
-**3. Database (code change needed)**
-- Workers can't use the default Unix-socket `DATABASE_URL`. Host PostgreSQL where Workers can reach it over TCP, and put Cloudflare Hyperdrive in front of it.
-- Update `src/server/db/pool.js` to take the connection string from the Hyperdrive binding (via `getCloudflareContext()`), and check pooling: on Workers, a connection per request through Hyperdrive is the usual pattern rather than one long-lived pool.
-- Run `scripts/migrate.sh --seed` from `history-of-db` against the hosted database.
+**3. ISR cache (done)**
+- `open-next.config.ts` stores cached pages in the R2 bucket `history-of-app-opennext-cache` (binding `NEXT_INC_CACHE_R2_BUCKET`) and regenerates stale ones in the background through a Durable Object queue (`NEXT_CACHE_DO_QUEUE`, class `DOQueueHandler`, plus `WORKER_SELF_REFERENCE`).
+- Create the bucket once before the first deploy: `npx wrangler r2 bucket create history-of-app-opennext-cache`.
+- No tag cache: it's only needed if you add `revalidatePath` / `revalidateTag`.
 
 **4. Environment**
-- `SITE_URL=https://<your domain>` (required: see Unresolved Issues).
-- `CORS_ORIGIN` only if other sites call `/v1`. `WEB_PORT` isn't used on Workers.
+- `SITE_URL` is set in `wrangler.jsonc` (`vars`). `keep_vars` keeps anything added in the dashboard across deploys.
+- `CORS_ORIGIN` only if other sites call `/v1`. `WEB_PORT` and `DATABASE_URL` aren't used on Workers.
 
 **5. Check after the first deploy**
 
@@ -322,7 +331,7 @@ This app runs on Node today. To deploy it on Cloudflare Workers with OpenNext (`
 Also share a timeline link in a social-card validator to see the image, and view source on a timeline to confirm the canonical uses your domain.
 
 **6. After re-seeding the database**
-- Cached timelines refresh within 6 hours. For an immediate refresh, add an on-demand revalidation endpoint (a route handler that checks a secret and calls `revalidatePath('/t/[slug]/[view]', 'page')`), which also needs the tag cache from step 2. Purge the Cloudflare CDN cache too if you added cache rules.
+- Cached timelines refresh within 6 hours. For an immediate refresh, add an on-demand revalidation endpoint (a route handler that checks a secret and calls `revalidatePath('/t/[slug]/[view]', 'page')`), which also needs the tag cache from step 3. Purge the Cloudflare CDN cache too if you added cache rules.
 
 **7. Search engines**
 - Submit `https://<your domain>/sitemap.xml` in Google Search Console and Bing Webmaster Tools.
@@ -335,6 +344,7 @@ Also share a timeline link in a social-card validator to see the image, and view
 |---|---|
 | `test/filters.test.js`, `test/lib.test.js`, `test/components.test.jsx` | URL ↔ filter helpers, dates, pagination, robots.txt and sitemap text, and the server-rendered components |
 | `test/api.test.js` | `/health` and `/v1` handlers with a fake database: validation, SQL parameters, response shapes, 404/503/500 errors |
+| `test/pool.test.js` | `sslmode` pinning, and `getDb()`: shared pool on Node, one Hyperdrive client per query on Workers (closed after success or failure) |
 | `test/db.integration.test.js` | The same handlers against the real seeded database; skipped if it can't connect |
 | `test/server.test.js` | Runs `next build`, starts `next start` against the real database and against a dead one, and checks pages, status codes, redirects, head tags, ISR caching, header search value, RSC requests, API, CORS, robots/sitemap, the share image and security headers; skipped without the database |
 
@@ -346,6 +356,8 @@ history-of-app/
 ├── .env.local.example         # DATABASE_URL, SITE_URL, CORS_ORIGIN, WEB_PORT (copy to .env.local)
 ├── docs/                      # FEATURES.md, PROJECT_STRUCTURE.md
 ├── next.config.mjs            # Timeline rewrites/redirects (ISR), security headers
+├── wrangler.jsonc             # Cloudflare Worker: name, SITE_URL, Hyperdrive binding
+├── open-next.config.ts        # OpenNext adapter (cache overrides go here)
 ├── vitest.config.mjs
 ├── public/                    # favicon.svg, og-image.png (share image)
 ├── test/

@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "plugins": ["react", "oxc", "nextjs"],
-  "ignorePatterns": [".next/**"],
+  "ignorePatterns": [".next/**", ".open-next/**", ".wrangler/**"],
   "rules": {
     "react/rules-of-hooks": "error",
     "nextjs/no-html-link-for-pages": "off"

@@ -1,5 +1,6 @@
 import 'server-only';
 import pg from 'pg';
+import { getCloudflareContext } from '@opennextjs/cloudflare';
 import { config } from '../config.js';
 
 // pg returns BIGINT (int8) as strings by default; our IDs fit in a JS number.
@@ -44,9 +45,54 @@ export function createPool(connectionString = config.databaseUrl) {
   return pool;
 }
 
-// The process-wide pool, shared by route handlers and server components.
-// Kept on globalThis so dev hot reloads don't open a new pool each time.
+// On Cloudflare Workers (OpenNext), the Worker's bindings, or null anywhere
+// else (next dev, next start, next build, tests): OpenNext throws when there's
+// no Cloudflare context, hence the try.
+function cloudflareEnv() {
+  try {
+    return getCloudflareContext().env;
+  } catch {
+    return null;
+  }
+}
+
+// Workers: a client per query, through Hyperdrive. A Worker can't reuse a
+// socket opened during another request ("Cannot perform I/O on behalf of a
+// different request"), so a process-wide pool breaks there. Hyperdrive keeps
+// the real connections to Neon warm on Cloudflare's side, which makes opening
+// a fresh one per query cheap. Callers only use db.query(text, params), so
+// that's all this object offers.
+function hyperdriveDb(hyperdrive) {
+  return {
+    async query(text, params) {
+      const client = new pg.Client({
+        connectionString: hyperdrive.connectionString,
+        connectionTimeoutMillis: 10_000,
+      });
+      // Closing the socket after the query raises a harmless "socket has been
+      // closed" error on workerd; only report errors from before that.
+      let ending = false;
+      client.on('error', (err) => {
+        if (!ending) console.error('Postgres client error:', err.message);
+      });
+      await client.connect();
+      try {
+        return await client.query(text, params);
+      } finally {
+        ending = true;
+        client.end().catch(() => {});
+      }
+    },
+  };
+}
+
+// The database for route handlers and server components. Workers with a
+// HYPERDRIVE binding: per-query clients (above). Everywhere else: one
+// process-wide pool, kept on globalThis so dev hot reloads don't open a new
+// pool each time.
 export function getDb() {
+  const hyperdrive = cloudflareEnv()?.HYPERDRIVE;
+  if (hyperdrive) return hyperdriveDb(hyperdrive);
   globalThis.__historyOfPool ??= createPool();
   return globalThis.__historyOfPool;
 }
