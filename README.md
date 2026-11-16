@@ -12,7 +12,7 @@ This repository is the main app: one **Next.js 16** (App Router) process that se
 
 | Document | What it covers |
 |---|---|
-| **README.md** (this file) | Vision, how the app works, setup, routes, caching, SEO, [features](#features), [open issues](#unresolved-issues) and [deploying to Cloudflare](#deploying-to-cloudflare) |
+| **README.md** (this file) | Vision, how the app works, setup, routes, caching, SEO, [features](#features), [open issues](#unresolved-issues), [next plans](#next-plans) and [deploying to Cloudflare](#deploying-to-cloudflare) |
 | [docs/FEATURES.md](docs/FEATURES.md) | Feature-by-feature breakdown (MVP / v1 / later) with what's done and what's planned |
 | [docs/PROJECT_STRUCTURE.md](docs/PROJECT_STRUCTURE.md) | Repositories, data model, API surface, data flow |
 
@@ -411,6 +411,32 @@ history-of-app/
 | **Later** | Compare two timelines, map view, multiple languages, admin review queue, public API |
 
 See [docs/FEATURES.md](docs/FEATURES.md) for the full breakdown.
+
+## Next Plans
+
+In rough order. Feature IDs point to [docs/FEATURES.md](docs/FEATURES.md). Data work (more countries, term types, the crawler) is listed in the `history-of-db` README.
+
+**1. Finish the MVP**
+- **Require `SITE_URL` in production:** fail the build or startup when it's missing, so cached pages never ship `http://localhost` links ([unresolved issues](#unresolved-issues)).
+- **Log missed searches (F-07):** write misses to `term_requests` and show close matches on the "No history for …" page.
+- **Autocomplete (F-01):** suggestions after 2 characters, debounced, with ↑ ↓ Enter Esc. Fuzzy matching stays on term names; aliases match exactly or by prefix.
+- **On-demand revalidation:** a secret-protected route that calls `revalidatePath` after re-seeding, so cached 404s and redirects don't linger for 6 hours.
+- **Decide `/search` in `robots.txt`:** drop the `Disallow` and rely on `noindex`, or keep both.
+
+**2. v1 features**
+- **Tag pages (F-11):** `/tag/{slug}` across every term, with titles, descriptions and sitemap entries; tags in search results.
+- **Event detail view (F-15):** side panel or sheet, plus `/e/{id}-{slug}` permalinks; then point the `ItemList` JSON-LD at them.
+- **Related terms (F-14):** from shared events and Wikidata follows / replaces relations.
+- **Timeline extras (F-03, F-09):** era presets and markers, a "key events only" toggle using `importance`, a dark theme.
+- **Search results paging (F-01)** beyond the top 10.
+
+**3. Hosting and polish**
+- ISR (or CDN caching) for the home page and `/countries`.
+- `apple-touch-icon`, web manifest and per-term share images generated as static files at build time.
+- Watch the ISR cache size from filter combinations; bucket years if it grows.
+- Content-Security-Policy with nonces, and rate limiting for `/v1`.
+- Playwright tests for filters and navigation; Lighthouse CI.
+- Pick a code license (MIT suggested) and decide on TypeScript and a query builder.
 
 ## License & Attribution
 
