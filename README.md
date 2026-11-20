@@ -308,6 +308,7 @@ Production runs on Cloudflare Workers through OpenNext (`@opennextjs/cloudflare`
 **3. ISR cache (done)**
 - `open-next.config.ts` stores cached pages in the R2 bucket `history-of-app-opennext-cache` (binding `NEXT_INC_CACHE_R2_BUCKET`) and regenerates stale ones in the background through a Durable Object queue (`NEXT_CACHE_DO_QUEUE`, class `DOQueueHandler`, plus `WORKER_SELF_REFERENCE`).
 - Create the bucket once before the first deploy: `npx wrangler r2 bucket create history-of-app-opennext-cache`.
+- Then add a lifecycle rule so the bucket doesn't grow without bound: `npx wrangler r2 bucket lifecycle add history-of-app-opennext-cache expire-stale-cache --expire-days 30`. It deletes objects not rewritten in 30 days (old deploys' entries, rare filter combinations, junk slugs); pages people visit are rewritten every 6 hours, so they stay. Trade-off: during a database outage, a page unvisited for 30 days can't be served stale. Check with `npx wrangler r2 bucket lifecycle list history-of-app-opennext-cache`.
 - No tag cache: it's only needed if you add `revalidatePath` / `revalidateTag`.
 
 **4. Environment**

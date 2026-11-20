@@ -36,11 +36,6 @@
 		{
 			"binding": "NEXT_INC_CACHE_R2_BUCKET",
 			"bucket_name": "history-of-app-opennext-cache"
-		},
-		{
-			"bucket_name": "history-of-app-opennext-cache",
-			"binding": "history_of_app_opennext_cache",
-			"remote": true
 		}
 	],
 	// Background revalidation queue for stale ISR pages; the class is exported
